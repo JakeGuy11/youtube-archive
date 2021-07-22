@@ -32,6 +32,7 @@ fn tup_vec_to_file<T: std::fmt::Display, U: std::fmt::Display>(target_vec: &Vec<
     // Now iterate through the entries of the vector, appending to the vector
     for item in target_vec.iter()
     {
+        if format! ("{}",item.0) == String::from("") || format! ("{}",item.1) == String::from("") { continue; }
         match writeln! (target_file_opts, "{}{}{}", item.0, delim, item.1 )
         {
             Ok(_) => {  },
