@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use std::io::BufRead;
 use std::io::Write;
 
+#[derive(Debug)]
 enum ReasonForFail
 {
     DirectoryCreationFailure,
@@ -12,18 +13,43 @@ enum ReasonForFail
     EntryNotFound
 }
 
-/*
-fn tup_vec_to_file<T,U>(target_vec: Vec<(T,U)>, target_file: PathBuf) -> Result<(), ReasonForFail>
+fn tup_vec_to_file<T: std::fmt::Display, U: std::fmt::Display>(target_vec: &Vec<(T,U)>, delim: &str, target_file: &PathBuf) -> Result<(), ReasonForFail>
 {
-    // Get the file
-    let dir_res = std::fs::create_dir_all(target_file);
+    // First create the directories if they don't exist
+    let dir_res = std::fs::create_dir_all(target_file.as_path());
+    if let Err(e) = dir_res { if e.kind() != std::io::ErrorKind::AlreadyExists { return Err(ReasonForFail::DirectoryCreationFailure); } }
+
+    // Create the OpenOptions for the file
+    let target_file_opts_res = std::fs::OpenOptions::new().write(true).append(true).create(true).open(target_file.as_path());
+    let mut target_file_opts = match target_file_opts_res
+    {
+        Ok(f) => { f }
+        Err(_) => { return Err(ReasonForFail::FileWritingFailure); }
+    };
+
+    // Delete the contents of the file
+    match std::fs::File::create(target_file)
+    {
+        Ok(_) => {  },
+        Err(_) => { return Err(ReasonForFail::FileWritingFailure); }
+    }
+
+    // Now iterate through the entries of the vector, appending to the vector
+    for item in target_vec.iter()
+    {
+        match writeln! (target_file_opts, "{}{}{}", item.0, delim, item.1 )
+        {
+            Ok(_) => {  },
+            Err(_) => { return Err(ReasonForFail::FileWritingFailure); }
+        }
+    }
+    
     Ok(())
 }
-*/
 
-fn remove_from_queue(req_arg: &String, target_file: &mut PathBuf) -> Result<(), ReasonForFail>
+fn file_to_tup_vec(delim: &str, target_file: &PathBuf) -> Result<Vec<(String,String)>, ReasonForFail>
 {
-    // First get the contents of a file into an organized vector
+    // First get the contents of the file
     let pref_file = match std::fs::File::open(target_file)
     {
         Err(_) => { return Err(ReasonForFail::FileNotFound); },
@@ -31,6 +57,8 @@ fn remove_from_queue(req_arg: &String, target_file: &mut PathBuf) -> Result<(), 
     };
     let file_reader = std::io::BufReader::new(pref_file);
     let entries_res: Vec<Result<String, std::io::Error>> = file_reader.lines().collect();
+
+    // Now split the lines
     let mut entries: Vec<(String,String)> = Vec::new();
     for current_line in entries_res.iter()
     {
@@ -39,10 +67,25 @@ fn remove_from_queue(req_arg: &String, target_file: &mut PathBuf) -> Result<(), 
             Ok(ln) => ln,
             Err(_) => { eprintln! ("Failed to read line of queue - continuing without it."); continue; }
         };
-        let formatted_line: (String,String) = (line.split(":").nth(0).unwrap_or("UNDEFINED").to_string(),line.split(":").last().unwrap_or("UCK9V2B22uJYu3N7eR_BT9QA").to_string());
+        let formatted_line: (String,String) = (line.split(delim).nth(0).unwrap_or("UNDEFINED").to_string(),line.split(delim).last().unwrap_or("UCK9V2B22uJYu3N7eR_BT9QA").to_string());
         entries.push(formatted_line);
     }
-    
+
+    Ok(entries)
+}
+
+fn remove_from_queue(req_arg: &String, target_file: &mut PathBuf) -> Result<(), ReasonForFail>
+{
+    // First get the entries from the file
+    let entries_res = file_to_tup_vec(":", target_file);
+    let mut entries = match entries_res
+    {
+        Ok(entries_vec) => entries_vec,
+        Err(e) => { return Err(e); }
+    };
+
+    println! ("Found entries: {:?}", entries);
+
     // Now scan through the elements and remove the last one that matches `req_arg`
     let mut removal_index: Option<u32> = None;
     for i in 0..entries.len() { if &entries[i].0 == req_arg || &entries[i].1 == req_arg { removal_index = Some(i as u32); } }
@@ -52,35 +95,37 @@ fn remove_from_queue(req_arg: &String, target_file: &mut PathBuf) -> Result<(), 
         None => { return Err(ReasonForFail::EntryNotFound); }
     }
 
+    println! ("writing {:?}", entries);
+
     // Write that back into the config file
-    // TODO: Impliment the `tup_vec` functions
-    for item in entries.iter()
+    match tup_vec_to_file(&entries, ":",  target_file)
     {
-
+        Ok(_) => Ok(()),
+        Err(e) => Err(e)
     }
-
-    Ok(())
 }
 
 fn add_to_queue(req_name: &String, req_id: &String, target_file: &mut PathBuf) -> Result<(), ReasonForFail>
 {
-    // First create the directories if they don't exist
-    let dir_res = std::fs::create_dir_all(target_file.as_path());
-    if let Err(_) = dir_res { return Err(ReasonForFail::DirectoryCreationFailure); }
-    
-    // Create the OpenOptions for the file
-    let pref_file_res = std::fs::OpenOptions::new().write(true).append(true).create(true).open(target_file.as_path());
-    let mut pref_file = match pref_file_res
+    let mut entries = match file_to_tup_vec(":", target_file)
     {
-        Ok(f) => { f }
-        Err(_) => { return Err(ReasonForFail::FileWritingFailure); }
+        Ok(vec) => vec,
+        Err(e) => { return Err(e); }
     };
 
-    match writeln!(pref_file, "{}", format!("{}:{}",req_name,req_id))
+    entries.push((req_name.to_string(),req_id.to_string()));
+
+    match tup_vec_to_file(&entries, ":", target_file)
     {
-        Ok(_) => { Ok(()) }
-        Err(_) => { Err(ReasonForFail::FileWritingFailure) }
+        Ok(_) => Ok(()),
+        Err(e) => Err(e)
     }
+}
+
+//
+fn verify_paths(paths: Vec<PathBuf>) -> Result<(), ReasonForFail>
+{
+
 }
 
 fn main() {
@@ -136,7 +181,7 @@ fn main() {
                     Ok(_) => { if debug_enabled { println! ("Added channel id {} with nickname {}", add_id, add_name); } },
                     Err(ReasonForFail::DirectoryCreationFailure) => { eprintln! ("Could not create preference directory! Do you have permission?"); std::process::exit(1); },
                     Err(ReasonForFail::FileWritingFailure) => { eprintln! ("Could not write queue file! Do you have permission?"); std::process::exit(1); },
-                    Err(_) => { eprintln! ("Something really bad happened"); std::process::exit(1); }
+                    Err(e) => { eprintln! ("Something really bad happened: {:?}", e); std::process::exit(1); }
                 }
             }
             "-r" | "--remove" =>
