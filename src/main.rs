@@ -1,6 +1,49 @@
+extern crate home;
 use std::sync::{Arc, Mutex};
+use std::path::PathBuf;
+use std::io::Write;
+
+enum FailReason
+{
+    DirectoryCreationFailure,
+    FileWritingFailure
+}
+
+fn add_to_queue(req_name: String, req_id: String, target_dir: PathBuf) -> Result<(), FailReason>
+{
+    // First create the directories if they don't exist
+    let dir_res = std::fs::create_dir_all(target_dir.as_path());
+    if let Err(_) = dir_res { return Err(FailReason::DirectoryCreationFailure); }
+    
+    // Create the path of the actual pref file
+    let mut target_file = target_dir.clone();
+    target_file.push("queue");
+
+    // Create the OpenOptions for the file
+    let pref_file_res = std::fs::OpenOptions::new().write(true).append(true).open(target_file.as_path());
+    let mut pref_file = match pref_file_res
+    {
+        Ok(f) => { f }
+        Err(_) => { return Err(FailReason::FileWritingFailure); }
+    };
+
+    match writeln!(pref_file, "{}", format!("{}:{}",req_name,req_id))
+    {
+        Ok(_) => { Ok(()) }
+        Err(_) => { Err(FailReason::FileWritingFailure) }
+    }
+}
 
 fn main() {
+
+    // Declare some paths we'll need
+    let mut pref_path = home::home_dir().expect("Failed to find user's home directory!");
+    pref_path.push(".config");
+    pref_path.push("youtube-archive");
+    let mut dl_path = home::home_dir().expect("Failed to find user's home directory!");
+    dl_path.push("videos");
+    dl_path.push("youtube-archive");
+
     // First collect all the cli args into a vector
     let cli_args: Vec<String> = std::env::args().skip(1).collect();
 
