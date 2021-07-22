@@ -123,9 +123,36 @@ fn add_to_queue(req_name: &String, req_id: &String, target_file: &mut PathBuf) -
 }
 
 //
-fn verify_paths(paths: Vec<PathBuf>) -> Result<(), ReasonForFail>
+fn verify_paths(paths: Vec<&PathBuf>, files: Vec<&PathBuf>) -> Result<(), ReasonForFail>
 {
+    // Create all the paths
+    for current_path in paths.iter()
+    {
+        match std::fs::create_dir_all(&current_path)
+        {
+            Err(_) => { return Err(ReasonForFail::DirectoryCreationFailure); },
+            Ok(_) => {  }
+        }
+    }
 
+    // Create all the files
+    for current_file in files.iter()
+    {
+        // Check if the file exists
+        let exists = current_file.as_path().exists();
+        if exists { continue; }
+        else
+        {
+            // Create the file
+            match std::fs::File::create(current_file.as_path())
+            {
+                Err(_) => { return Err(ReasonForFail::FileWritingFailure); },
+                Ok(_) => {  }
+            }
+        }
+    }
+
+    Ok(())
 }
 
 fn main() {
@@ -138,6 +165,8 @@ fn main() {
     let mut dl_path = home::home_dir().expect("Failed to find user's home directory!");
     dl_path.push("videos");
     dl_path.push("youtube-archive");
+
+    verify_paths(vec![&dl_path], vec![&pref_path]).unwrap();
 
     // First collect all the cli args into a vector
     let cli_args: Vec<String> = std::env::args().skip(1).collect();
