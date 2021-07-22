@@ -1,5 +1,4 @@
 extern crate home;
-use std::sync::{Arc, Mutex};
 use std::path::PathBuf;
 use std::io::BufRead;
 use std::io::Write;
@@ -15,10 +14,6 @@ enum ReasonForFail
 
 fn tup_vec_to_file<T: std::fmt::Display, U: std::fmt::Display>(target_vec: &Vec<(T,U)>, delim: &str, target_file: &PathBuf) -> Result<(), ReasonForFail>
 {
-    // First create the directories if they don't exist
-    let dir_res = std::fs::create_dir_all(target_file.as_path());
-    if let Err(e) = dir_res { if e.kind() != std::io::ErrorKind::AlreadyExists { return Err(ReasonForFail::DirectoryCreationFailure); } }
-
     // Create the OpenOptions for the file
     let target_file_opts_res = std::fs::OpenOptions::new().write(true).append(true).create(true).open(target_file.as_path());
     let mut target_file_opts = match target_file_opts_res
@@ -55,12 +50,11 @@ fn file_to_tup_vec(delim: &str, target_file: &PathBuf) -> Result<Vec<(String,Str
         Err(_) => { return Err(ReasonForFail::FileNotFound); },
         Ok(file) => file
     };
-    let file_reader = std::io::BufReader::new(pref_file);
-    let entries_res: Vec<Result<String, std::io::Error>> = file_reader.lines().collect();
+    let entries_res = std::io::BufReader::new(pref_file).lines();
 
     // Now split the lines
     let mut entries: Vec<(String,String)> = Vec::new();
-    for current_line in entries_res.iter()
+    for current_line in entries_res
     {
         let line = match current_line
         {
@@ -84,8 +78,6 @@ fn remove_from_queue(req_arg: &String, target_file: &mut PathBuf) -> Result<(), 
         Err(e) => { return Err(e); }
     };
 
-    println! ("Found entries: {:?}", entries);
-
     // Now scan through the elements and remove the last one that matches `req_arg`
     let mut removal_index: Option<u32> = None;
     for i in 0..entries.len() { if &entries[i].0 == req_arg || &entries[i].1 == req_arg { removal_index = Some(i as u32); } }
@@ -94,8 +86,6 @@ fn remove_from_queue(req_arg: &String, target_file: &mut PathBuf) -> Result<(), 
         Some(i) => { entries.remove(i as usize); },
         None => { return Err(ReasonForFail::EntryNotFound); }
     }
-
-    println! ("writing {:?}", entries);
 
     // Write that back into the config file
     match tup_vec_to_file(&entries, ":",  target_file)
@@ -122,7 +112,6 @@ fn add_to_queue(req_name: &String, req_id: &String, target_file: &mut PathBuf) -
     }
 }
 
-//
 fn verify_paths(paths: Vec<&PathBuf>, files: Vec<&PathBuf>) -> Result<(), ReasonForFail>
 {
     // Create all the paths
@@ -161,12 +150,13 @@ fn main() {
     let mut pref_path = home::home_dir().expect("Failed to find user's home directory!");
     pref_path.push(".config");
     pref_path.push("youtube-archive");
-    pref_path.push("queue");
+    let mut pref_file = pref_path.clone();
+    pref_file.push("queue");
     let mut dl_path = home::home_dir().expect("Failed to find user's home directory!");
     dl_path.push("videos");
     dl_path.push("youtube-archive");
 
-    verify_paths(vec![&dl_path], vec![&pref_path]).unwrap();
+    verify_paths(vec![&pref_path, &dl_path], vec![&pref_file]).unwrap();
 
     // First collect all the cli args into a vector
     let cli_args: Vec<String> = std::env::args().skip(1).collect();
@@ -174,9 +164,6 @@ fn main() {
     // Check for debug mode first
     let debug_flag = String::from("--debug");
     let debug_enabled = if cli_args.contains(&debug_flag) { println! ("Debug mode enabled"); true } else { false };
-
-    // Get which channels to check
-    let channel_vec = Arc::new(Mutex::new(vec![(String::from("Calli"),String::from("UCL_qhgtOy0dy1Agp8vkySQg")), (String::from("IRyS"),String::from("UC8rcEBzJSleTkf_-agPM20g")), (String::from("Polka"),String::from("UCK9V2B22uJYu3N7eR_BT9QA"))]));
 
     // Go through each argument
     for i in 0..cli_args.len()
@@ -205,7 +192,7 @@ fn main() {
 
                 // Add the entry
                 if debug_enabled { println! ("User intends to add channel with nickname {} and id {}", add_name, add_id); }
-                match add_to_queue(add_name, &add_id, &mut pref_path)
+                match add_to_queue(add_name, &add_id, &mut pref_file)
                 {
                     Ok(_) => { if debug_enabled { println! ("Added channel id {} with nickname {}", add_id, add_name); } },
                     Err(ReasonForFail::DirectoryCreationFailure) => { eprintln! ("Could not create preference directory! Do you have permission?"); std::process::exit(1); },
@@ -215,7 +202,22 @@ fn main() {
             }
             "-r" | "--remove" =>
             {
-                remove_from_queue(&String::new(), &mut pref_path);
+                // Get the name they want to add it as
+                let attempted_remove_arg = cli_args.get(i+1);
+
+                // Make sure it's valid
+                if let None = attempted_remove_arg { eprintln! ("You must specify a valid removal arg!"); std::process::exit(1); }
+                let remove_arg = attempted_remove_arg.unwrap();
+                if remove_arg.len() == 0 { eprintln! ("You must specify a valid removal arg!"); std::process::exit(1); }
+
+                if debug_enabled { println! ("Attempting to remove {} from queue", remove_arg); }
+                match remove_from_queue(&remove_arg, &mut pref_file)
+                {
+                    Ok(_) => { println! ("Successfully removed {} from the queue", remove_arg); },
+                    Err(ReasonForFail::FileWritingFailure) => { eprintln! ("Failed to write to queue file! Do you have permission?"); std::process::exit(1); },
+                    Err(ReasonForFail::FileNotFound) | Err(ReasonForFail::DirectoryCreationFailure) => { eprintln! ("Could not find queue file! Do you have read permissions?"); std::process::exit(1); },
+                    Err(ReasonForFail::EntryNotFound) => { eprintln! ("Could not find {} in the queue! Doing nothing.", remove_arg); }
+                }
             }
             _ => {  }
         }
