@@ -113,6 +113,24 @@ fn add_to_queue(req_name: &String, req_id: &String, target_file: &mut PathBuf) -
     }
 }
 
+fn list_queue(queue_path: &PathBuf) -> Result<(), ReasonForFail>
+{
+   // Read the queue from the file
+   let entries = match file_to_tup_vec(":", queue_path)
+   {
+       Ok(vec) => vec,
+       Err(e) => { return Err(e); }
+   };
+
+   // Iterate through the entries, printing them
+   for entry in entries.iter()
+   {
+       println! ("https://www.youtube.com/channel/{} is saved under the nickname \"{}\"", entry.1, entry.0);
+   }
+
+   Ok(())
+}
+
 fn verify_paths(paths: Vec<&PathBuf>, files: Vec<&PathBuf>) -> Result<(), ReasonForFail>
 {
     // Create all the paths
@@ -173,6 +191,17 @@ fn main() {
         match cli_args[i].as_str()
         {
             "-h" | "--help" => { println! ("Help message will go here"); },
+            "-l" | "--list" =>
+            {
+                // Call the list function and check for errors
+                if debug_enabled { println! ("Listing entries"); }
+                match list_queue(&pref_file)
+                {
+                    Ok(_) => {  },
+                    Err(ReasonForFail::FileNotFound) => {  },
+                    Err(e) => { eprintln! ("Something really bad happened: {:?}", e); std::process::exit(1); }
+                }
+            }
             "-a" | "--add" => 
             {
                 // Get the name they want to add it as
