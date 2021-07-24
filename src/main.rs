@@ -263,7 +263,7 @@ fn main()
     {
         // We want to start the program
         let rt = tokio::runtime::Runtime::new().unwrap();
-        let start_fn = start();
+        let start_fn = start(pref_file, 1000, debug_enabled);
         rt.block_on(start_fn);
     }
 
@@ -271,12 +271,28 @@ fn main()
 
 // All start/live functions will go below here
 
-async fn start()
+async fn start(queue_file: PathBuf, delay_time: u64, debug_mode: bool)
 {
+    if debug_mode { println! ("Entering async start function"); }
     loop
     {
-        println! ("in start");
-        sleep(Duration::from_millis(1000)).await;
+        println! ("Checking channels...");
+
+        // Get the entries for the file
+        let entries = match file_to_tup_vec(":", &queue_file)
+        {
+            Ok(vec) => vec,
+            Err(ReasonForFail::FileNotFound) => { eprintln! ("Could not find queue file!"); std::process::exit(1); },
+            Err(e) => { eprintln! ("Something really bad happened: {:?}", e); std::process::exit(1); }
+        };
+
+        // Iterate through the entries
+        for current_entry in entries.iter()
+        {
+            println! ("Checking videos for {}", current_entry.0);
+        }
+
+        sleep(Duration::from_millis(delay_time)).await;
     }
 }
 
