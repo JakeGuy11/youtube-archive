@@ -1,4 +1,6 @@
 extern crate home;
+extern crate tokio;
+use tokio::time::{sleep, Duration};
 use std::path::PathBuf;
 use std::io::BufRead;
 use std::io::Write;
@@ -163,8 +165,8 @@ fn verify_paths(paths: Vec<&PathBuf>, files: Vec<&PathBuf>) -> Result<(), Reason
     Ok(())
 }
 
-fn main() {
-
+fn main() 
+{
     // Declare some paths we'll need
     let mut pref_path = home::home_dir().expect("Failed to find user's home directory!");
     pref_path.push(".config");
@@ -183,6 +185,10 @@ fn main() {
     // Check for debug mode first
     let debug_flag = String::from("--debug");
     let debug_enabled = if cli_args.contains(&debug_flag) { println! ("Debug mode enabled"); true } else { false };
+    
+    // Check if the user wants to start the program
+    let start_flags = (String::from("--start"),String::from("-s"));
+    let start_scan = if cli_args.contains(&start_flags.0) || cli_args.contains(&start_flags.1) { true } else { false };
 
     // Go through each argument
     for i in 0..cli_args.len()
@@ -252,4 +258,33 @@ fn main() {
             _ => {  }
         }
     }
+    
+    if start_scan
+    {
+        // We want to start the program
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let start_fn = start();
+        rt.block_on(start_fn);
+    }
+
 }
+
+// All start/live functions will go below here
+
+async fn start()
+{
+    loop
+    {
+        println! ("in start");
+        sleep(Duration::from_millis(1000)).await;
+    }
+}
+
+
+
+
+
+
+
+
+
