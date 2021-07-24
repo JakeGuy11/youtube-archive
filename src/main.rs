@@ -263,7 +263,7 @@ fn main()
     {
         // We want to start the program
         let rt = tokio::runtime::Runtime::new().unwrap();
-        let start_fn = start(pref_file, 1000, debug_enabled);
+        let start_fn = start(pref_file, 5000, debug_enabled);
         rt.block_on(start_fn);
     }
 
@@ -289,7 +289,13 @@ async fn start(queue_file: PathBuf, delay_time: u64, debug_mode: bool)
         // Iterate through the entries
         for current_entry in entries.iter()
         {
-            println! ("Checking videos for {}", current_entry.0);
+            println! ("Checking videos for {}...", current_entry.0);
+            let video_id = match std::process::Command::new("./parse_youtube_data.py").arg(current_entry.1.as_str()).output()
+            {
+                Ok(vid_id) => if std::str::from_utf8(&vid_id.stdout).unwrap() == "no_live\n" { println! ("{} is not live.", current_entry.0); continue; } else { std::str::from_utf8(&vid_id.stdout).unwrap().to_string() }
+                Err(_) => { eprintln! ("Failed to check entry!"); std::process::exit(1); }
+            };
+            println! ("{}", video_id);
         }
 
         sleep(Duration::from_millis(delay_time)).await;
