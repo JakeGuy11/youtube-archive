@@ -264,7 +264,7 @@ fn main()
     {
         // We want to start the program
         let rt = tokio::runtime::Runtime::new().unwrap();
-        let start_fn = start(pref_file, dl_path, 5000, debug_enabled);
+        let start_fn = start(pref_file, dl_path, 30000, debug_enabled);
         rt.block_on(start_fn);
     }
 
@@ -315,13 +315,15 @@ async fn start(queue_file: PathBuf, download_path: PathBuf, delay_time: u64, deb
                 move ||archive_from_id(vid_id, save_name, dl_path, activity_vec_to_pass, debug_to_pass, )
             });
         }
+        println! ("");
         sleep(Duration::from_millis(delay_time)).await;
     }
 }
 
 fn archive_from_id(video_id: String, name: String, download_path: PathBuf, active_archive_vec: Arc<Mutex<Vec<String>>>, debug_mode: bool)
 {
-    println! ("Starting archive for {}...", name);
+    let log_message = format! ("[{}'s ARCHIVE THREAD]:", name.to_uppercase());
+    println! ("{} Starting archive for {}...", log_message, name);
     
     // Tell everyone we're archiving the stream
     loop
@@ -330,11 +332,27 @@ fn archive_from_id(video_id: String, name: String, download_path: PathBuf, activ
         std::thread::sleep(std::time::Duration::from_millis(5));
     }
 
-    // Do the youtube-dl and ffmpeg thing
-    std::process::Command::new("youtube-dl").arg("-f").arg("best").arg("--no-continue").arg("-o").arg(format! ("{}/{}", download_path.as_path().display(), video_id)).arg(format! ("https://www.youtube.com/watch?v={}", video_id)).output();
-    println! ("youtube-dl -f best -g https://www.youtube.com/watch?v={}` -c copy {}/YY-MM-DD-{}.mp4", video_id, download_path.display(), name);
-
-    println! ("{}'s stream has ended.", name);
+    // Do the youtube-dl command
+    let raw_save_name = format! ("{}/{}", download_path.as_path().display(), video_id);
+    let new_save_name = format! ("{}/[YY-MM-DD]{}.mp4", download_path.as_path().display(), name);
+    match std::process::Command::new("youtube-dl").arg("-f").arg("best").arg("-q").arg("--no-continue").arg("-o").arg(raw_save_name.as_str()).arg(format! ("https://www.youtube.com/watch?v={}", video_id)).status().unwrap().code().unwrap()
+    {
+        0 =>
+        {
+            // The `youtube-dl` succeeded. Do the ffmpeg command now
+            match std::process::Command::new("ffmpeg").arg("-i").arg(&raw_save_name).arg("-c").arg("copy").arg("-loglevel").arg("panic").arg(&new_save_name).status().unwrap().code().unwrap()
+            {
+                0 =>
+                {
+                    // The `ffmpeg` succeeded. Remove the raw
+                    std::process::Command::new("rm").arg("raw_save_name").spawn().unwrap();
+                },
+                _ => { eprintln! ("{} `ffmpeg` has failed! Leaving any raw files at {}, {}", log_message, raw_save_name, new_save_name); }
+            }
+        },
+        _ => { eprintln! ("{} `youtube-dl failed! Leaving any raw file at {}", log_message, raw_save_name); }
+    }
+    println! ("{} {}'s stream has ended.", log_message, name);
 
     // Remove their entry from the active queue
     loop
