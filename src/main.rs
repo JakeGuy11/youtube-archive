@@ -264,7 +264,7 @@ fn main()
     {
         // We want to start the program
         let rt = tokio::runtime::Runtime::new().unwrap();
-        let start_fn = start(pref_file, 5000, debug_enabled);
+        let start_fn = start(pref_file, dl_path, 5000, debug_enabled);
         rt.block_on(start_fn);
     }
 
@@ -272,7 +272,7 @@ fn main()
 
 // All start/live functions will go below here
 
-async fn start(queue_file: PathBuf, delay_time: u64, debug_mode: bool)
+async fn start(queue_file: PathBuf, download_path: PathBuf, delay_time: u64, debug_mode: bool)
 {
     if debug_mode { println! ("Entering async start function"); }
 
@@ -298,35 +298,55 @@ async fn start(queue_file: PathBuf, delay_time: u64, debug_mode: bool)
             println! ("Checking if {} is live...", current_entry.0);
             let video_id = match std::process::Command::new("./parse_youtube_data.py").arg(current_entry.1.as_str()).output()
             {
-                Ok(vid_id) => if std::str::from_utf8(&vid_id.stdout).unwrap() == "no_live\n" { println! ("{} is not live.", current_entry.0); continue; } else { std::str::from_utf8(&vid_id.stdout).unwrap().to_string() }
+                Ok(vid_id) => if std::str::from_utf8(&vid_id.stdout).unwrap() == "no_live\n" { println! ("{} is not live.", current_entry.0); continue; } else { std::str::from_utf8(&vid_id.stdout).unwrap().to_string().replace("\n", "") }
                 Err(_) => { eprintln! ("Failed to check entry for {}!", current_entry.0); std::process::exit(1); }
             };
-
-            // Check if this person is already being archived
-            //if let Ok(active_vec) = active_archives.lock() {  }
+            
+            // Check to see if the user's stream is already being archived
+            if let Ok(active_vec) = active_archives.lock() { if active_vec.contains(&current_entry.1) { println! ("{}'s stream is already being archived.", current_entry.0); continue; } }
 
             tokio::task::spawn_blocking({
-                let entry_clone = current_entry.clone();
+                let vid_id = video_id.clone();
+                let save_name = String::from(&current_entry.0);
+                let dl_path = download_path.clone();
                 let activity_vec_to_pass = Arc::clone(&active_archives);
                 let debug_to_pass = debug_mode;
 
-                move ||archive_from_id(String::from(&entry_clone.1), String::from(&entry_clone.0), activity_vec_to_pass, debug_to_pass)
+                move ||archive_from_id(vid_id, save_name, dl_path, activity_vec_to_pass, debug_to_pass, )
             });
         }
-
         sleep(Duration::from_millis(delay_time)).await;
     }
 }
 
-async fn archive_from_id(video_id: String, name: String, active_archive_vec: Arc<Mutex<Vec<String>>>, debug_mode: bool)
+fn archive_from_id(video_id: String, name: String, download_path: PathBuf, active_archive_vec: Arc<Mutex<Vec<String>>>, debug_mode: bool)
 {
-    if debug_mode { println! ("Starting archive for {}", name); }
-
-    // Keep trying to add the name to the activity vec until it works
+    println! ("Starting archive for {}...", name);
+    
+    // Tell everyone we're archiving the stream
     loop
     {
-        if let Ok(mut active_vec) = active_archive_vec.lock() { active_vec.push(video_id); break; }
-        tokio::time::sleep(tokio::time::Duration::from_millis(5)).await;
+        if let Ok(mut active_vec) = active_archive_vec.lock() { active_vec.push(video_id.clone()); break; }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+
+    // Do the ffmpeg thing
+    println! ("ffmpeg -i `youtube-dl -f best -g https://www.youtube.com/watch?v={}` -c copy {}/YY-MM-DD-{}.mp4", video_id, download_path.display(), name);
+
+    println! ("{}'s stream has ended.", name);
+
+    // Remove their entry from the active queue
+    loop
+    {
+        if let Ok(mut active_vec) = active_archive_vec.lock() 
+        {
+            for i in 0..active_vec.len()
+            {
+                if active_vec[i] == video_id { active_vec.remove(i); }
+            }
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
     }
 }
 
