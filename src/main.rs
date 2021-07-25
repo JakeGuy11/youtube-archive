@@ -303,7 +303,7 @@ async fn start(queue_file: PathBuf, download_path: PathBuf, delay_time: u64, deb
             };
             
             // Check to see if the user's stream is already being archived
-            if let Ok(active_vec) = active_archives.lock() { if active_vec.contains(&current_entry.1) { println! ("{}'s stream is already being archived.", current_entry.0); continue; } }
+            if let Ok(active_vec) = active_archives.lock() { if active_vec.contains(&video_id) { println! ("{}'s stream is already being archived.", current_entry.0); continue; } }
 
             tokio::task::spawn_blocking({
                 let vid_id = video_id.clone();
@@ -330,8 +330,9 @@ fn archive_from_id(video_id: String, name: String, download_path: PathBuf, activ
         std::thread::sleep(std::time::Duration::from_millis(5));
     }
 
-    // Do the ffmpeg thing
-    println! ("ffmpeg -i `youtube-dl -f best -g https://www.youtube.com/watch?v={}` -c copy {}/YY-MM-DD-{}.mp4", video_id, download_path.display(), name);
+    // Do the youtube-dl and ffmpeg thing
+    std::process::Command::new("youtube-dl").arg("-f").arg("best").arg("--no-continue").arg("-o").arg(format! ("{}/{}", download_path.as_path().display(), video_id)).arg(format! ("https://www.youtube.com/watch?v={}", video_id)).output();
+    println! ("youtube-dl -f best -g https://www.youtube.com/watch?v={}` -c copy {}/YY-MM-DD-{}.mp4", video_id, download_path.display(), name);
 
     println! ("{}'s stream has ended.", name);
 
