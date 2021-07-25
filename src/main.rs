@@ -1,6 +1,7 @@
 extern crate home;
 extern crate tokio;
 use tokio::time::{sleep, Duration};
+use std::sync::{Arc, Mutex};
 use std::path::PathBuf;
 use std::io::BufRead;
 use std::io::Write;
@@ -274,6 +275,11 @@ fn main()
 async fn start(queue_file: PathBuf, delay_time: u64, debug_mode: bool)
 {
     if debug_mode { println! ("Entering async start function"); }
+
+    // Create the vector to keep track of what's running
+    let active_archives: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+
+    // Start the periodic loop
     loop
     {
         println! ("Checking channels...");
@@ -289,24 +295,38 @@ async fn start(queue_file: PathBuf, delay_time: u64, debug_mode: bool)
         // Iterate through the entries
         for current_entry in entries.iter()
         {
-            println! ("Checking videos for {}...", current_entry.0);
+            println! ("Checking if {} is live...", current_entry.0);
             let video_id = match std::process::Command::new("./parse_youtube_data.py").arg(current_entry.1.as_str()).output()
             {
                 Ok(vid_id) => if std::str::from_utf8(&vid_id.stdout).unwrap() == "no_live\n" { println! ("{} is not live.", current_entry.0); continue; } else { std::str::from_utf8(&vid_id.stdout).unwrap().to_string() }
-                Err(_) => { eprintln! ("Failed to check entry!"); std::process::exit(1); }
+                Err(_) => { eprintln! ("Failed to check entry for {}!", current_entry.0); std::process::exit(1); }
             };
-            println! ("{}", video_id);
+
+            // Check if this person is already being archived
+            //if let Ok(active_vec) = active_archives.lock() {  }
+
+            tokio::task::spawn_blocking({
+                let entry_clone = current_entry.clone();
+                let activity_vec_to_pass = Arc::clone(&active_archives);
+                let debug_to_pass = debug_mode;
+
+                move ||archive_from_id(String::from(&entry_clone.1), String::from(&entry_clone.0), activity_vec_to_pass, debug_to_pass)
+            });
         }
 
         sleep(Duration::from_millis(delay_time)).await;
     }
 }
 
+async fn archive_from_id(video_id: String, name: String, active_archive_vec: Arc<Mutex<Vec<String>>>, debug_mode: bool)
+{
+    if debug_mode { println! ("Starting archive for {}", name); }
 
-
-
-
-
-
-
+    // Keep trying to add the name to the activity vec until it works
+    loop
+    {
+        if let Ok(mut active_vec) = active_archive_vec.lock() { active_vec.push(video_id); break; }
+        tokio::time::sleep(tokio::time::Duration::from_millis(5)).await;
+    }
+}
 
